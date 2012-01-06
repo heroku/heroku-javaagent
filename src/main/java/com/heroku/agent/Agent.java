@@ -83,7 +83,7 @@ public class Agent {
 
 
         private void formatAndOutput(String fmt, Object... args) {
-            System.out.print(String.format("heroku-agent [%d]: ", System.currentTimeMillis()));
+            System.out.print("heroku-agent: ");
             System.out.println(String.format(fmt, args));
         }
     }
