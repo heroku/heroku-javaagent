@@ -7,6 +7,9 @@ import javax.management.JMX;
 import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
@@ -39,9 +42,10 @@ public class Agent {
     public static class Reporter extends TimerTask {
 
         static class LazyJMX {
+
             /*
-            we cant register the hotspot mbeans in premain so we do it lazily here so main will have been called
-             */
+           we cant register the hotspot mbeans in premain so we do it lazily here so main will have been called
+            */
 
             static MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
             static ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
@@ -58,6 +62,28 @@ public class Agent {
 
             //HotspotMemoryMBean hotspotMemoryMBean = JMX.newMBeanProxy(mBeanServer, objectName(HOTSPOT_MEMORY_MBEAN), HotspotMemoryMBean.class);
             static HotspotThreadMBean hotspotThreadMBean = JMX.newMBeanProxy(mBeanServer, objectName(HOTSPOT_THREADING_MBEAN), HotspotThreadMBean.class);
+        }
+
+        static class LazyLogger {
+
+            static Process logger;
+            static PrintStream out;
+
+            static {
+                try {
+                    logger = new ProcessBuilder("logger", "-t", "heroku-javaagent").start();
+                    out = new PrintStream(logger.getOutputStream());
+                } catch (IOException e) {
+                    System.out.println("Cant init syslogger process, skipping");
+                    out = new PrintStream(new OutputStream() {
+                        @Override
+                        public void write(int i) throws IOException {
+                            //noop
+                        }
+                    });
+                }
+            }
+
         }
 
         @Override
@@ -83,8 +109,13 @@ public class Agent {
 
 
         private void formatAndOutput(String fmt, Object... args) {
+            PrintStream[] outs = new PrintStream[]{System.out, LazyLogger.out};
+            String msg = String.format(fmt, args);
             System.out.print("heroku-agent: ");
-            System.out.println(String.format(fmt, args));
+            System.out.println(msg);
+            LazyLogger.out.println(msg);
+            LazyLogger.out.flush();
+
         }
     }
 
