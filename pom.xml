@@ -5,12 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.heroku.agent</groupId>
-    <artifactId>agent</artifactId>
+    <artifactId>heroku-javaagent</artifactId>
     <version>1.1</version>
     <packaging>jar</packaging>
 
     <build>
-        <finalName>heroku-agent</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

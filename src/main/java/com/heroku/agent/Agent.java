@@ -15,8 +15,11 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadMXBean;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+
 
 public class Agent {
 
@@ -40,6 +43,25 @@ public class Agent {
 
 
     public static class Reporter extends TimerTask {
+
+        static enum Attribute {
+            heap_memory_used_mb("Heap Memory Used"),
+            heap_memory_committed_mb("Heap Memory Committed"),
+            heap_memory_max_mb("Heap Memory Max"),
+            nonheap_memory_used_mb("Non-Heap Memory Used"),
+            nonheap_memory_committed_mb("Non-Heap Memory Committed"),
+            nonheap_memory_max_mb("Non-Heap Memory Maximum"),
+            total_threads("Total Threads"),
+            daemon_threads("Daemon Threads"),
+            nondaemon_threads("Non-Daemon Threads"),
+            internal_threads("Internal Threads (GC, etc)");
+
+            public final String pretty;
+
+            Attribute(String pretty) {
+                this.pretty = pretty;
+            }
+        }
 
         static class LazyJMX {
 
@@ -88,34 +110,60 @@ public class Agent {
 
         @Override
         public void run() {
-            reportMemoryUtilization();
-            reportThreadUtilization();
+            EnumMap<Attribute, Long> attributes = new EnumMap<Attribute, Long>(Attribute.class);
+            getMemoryUtilization(attributes);
+            getThreadUtilization(attributes);
+            userReport(attributes);
+            statsReport(attributes);
         }
 
-        private void reportThreadUtilization() {
+        private void userReport(EnumMap<Attribute, Long> attributes) {
+            formatAndOutput("JVM Memory Usage     (Heap): used: %dM committed: %dM max:%dM",
+                    attributes.get(Attribute.heap_memory_used_mb), attributes.get(Attribute.heap_memory_committed_mb), attributes.get(Attribute.heap_memory_max_mb));
+            formatAndOutput("JVM Memory Usage (Non-Heap): used: %dM committed: %dM max:%dM",
+                    attributes.get(Attribute.nonheap_memory_used_mb), attributes.get(Attribute.nonheap_memory_committed_mb), attributes.get(Attribute.nonheap_memory_max_mb));
+            formatAndOutput("JVM Threads                : total: %d daemon: %d non-daemon: %d internal: %d",
+                    attributes.get(Attribute.total_threads), attributes.get(Attribute.daemon_threads), attributes.get(Attribute.nondaemon_threads), attributes.get(Attribute.internal_threads));
+        }
+
+        private void statsReport(EnumMap<Attribute, Long> attributes) {
+            StringBuilder stats = new StringBuilder("{ heroku-javaagent: {");
+            for (Map.Entry<Attribute, Long> entry : attributes.entrySet()) {
+                stats.append(entry.getKey().name()).append("=").append(entry.getValue()).append(", ");
+            }
+            stats.setLength(stats.length() - ", ".length());
+            stats.append("} }");
+            LazyLogger.out.println(stats.toString());
+            LazyLogger.out.flush();
+        }
+
+        private void getThreadUtilization(EnumMap<Attribute, Long> attributes) {
             int internal = LazyJMX.hotspotThreadMBean.getInternalThreadCount();
             int totalThreads = LazyJMX.threadMXBean.getThreadCount();
             int daemonThreads = LazyJMX.threadMXBean.getDaemonThreadCount();
             int nonDaemon = totalThreads - daemonThreads;
-            formatAndOutput("JVM Threads                : total: %d daemon: %d non-daemon: %d internal: %d", totalThreads + internal, daemonThreads, nonDaemon, internal);
+            attributes.put(Attribute.total_threads, new Long(totalThreads + internal));
+            attributes.put(Attribute.daemon_threads, new Long(daemonThreads));
+            attributes.put(Attribute.nondaemon_threads, new Long(nonDaemon));
+            attributes.put(Attribute.internal_threads, new Long(internal));
         }
 
-        private void reportMemoryUtilization() {
+        private void getMemoryUtilization(EnumMap<Attribute, Long> attributes) {
             MemoryUsage heap = LazyJMX.memoryMXBean.getHeapMemoryUsage();
             MemoryUsage nonHeap = LazyJMX.memoryMXBean.getNonHeapMemoryUsage();
-            formatAndOutput("JVM Memory Usage     (Heap): used: %dM committed: %dM max:%dM", heap.getUsed() / BYTES_PER_MB, heap.getCommitted() / BYTES_PER_MB, heap.getMax() / BYTES_PER_MB);
-            formatAndOutput("JVM Memory Usage (Non-Heap): used: %dM committed: %dM max:%dM", nonHeap.getUsed() / BYTES_PER_MB, nonHeap.getCommitted() / BYTES_PER_MB, nonHeap.getMax() / BYTES_PER_MB);
+            attributes.put(Attribute.heap_memory_used_mb, heap.getUsed() / BYTES_PER_MB);
+            attributes.put(Attribute.heap_memory_committed_mb, heap.getCommitted() / BYTES_PER_MB);
+            attributes.put(Attribute.heap_memory_max_mb, heap.getMax() / BYTES_PER_MB);
+            attributes.put(Attribute.nonheap_memory_used_mb, nonHeap.getUsed() / BYTES_PER_MB);
+            attributes.put(Attribute.nonheap_memory_committed_mb, nonHeap.getCommitted() / BYTES_PER_MB);
+            attributes.put(Attribute.nonheap_memory_max_mb, nonHeap.getMax() / BYTES_PER_MB);
         }
 
 
         private void formatAndOutput(String fmt, Object... args) {
-            PrintStream[] outs = new PrintStream[]{System.out, LazyLogger.out};
             String msg = String.format(fmt, args);
-            System.out.print("heroku-agent: ");
+            System.out.print("heroku-javaagent: ");
             System.out.println(msg);
-            LazyLogger.out.println(msg);
-            LazyLogger.out.flush();
-
         }
     }
 
