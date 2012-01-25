@@ -33,16 +33,23 @@ public class Agent {
 
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
-        agent = new Agent(instrumentation);
+        boolean userlog = agentArgs != null && agentArgs.contains("stdout=true");
+        agent = new Agent(instrumentation, userlog);
     }
 
-    public Agent(Instrumentation instrumentation) {
+    public Agent(Instrumentation instrumentation, boolean userlog) {
         this.instrumentation = instrumentation;
-        timer.scheduleAtFixedRate(new Reporter(), 5000, 60000);
+        timer.scheduleAtFixedRate(new Reporter(userlog), 5000, 60000);
     }
 
 
     public static class Reporter extends TimerTask {
+
+        private boolean userlog;
+
+        public Reporter(boolean userlog) {
+            this.userlog = userlog;
+        }
 
         static enum Attribute {
             heap_memory_used_mb("Heap Memory Used"),
@@ -113,7 +120,9 @@ public class Agent {
             EnumMap<Attribute, Long> attributes = new EnumMap<Attribute, Long>(Attribute.class);
             getMemoryUtilization(attributes);
             getThreadUtilization(attributes);
-            userReport(attributes);
+            if (userlog) {
+                userReport(attributes);
+            }
             statsReport(attributes);
         }
 
