@@ -40,12 +40,13 @@ public class Agent {
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         boolean userlog = agentArgs != null && agentArgs.contains("stdout=true");
         boolean linuxMem = agentArgs != null && agentArgs.contains("lxmem=true");
-        agent = new Agent(instrumentation, userlog, linuxMem);
+        boolean legacyFmt = agentArgs != null && agentArgs.contains("legacyfmt=true");
+        agent = new Agent(instrumentation, userlog, linuxMem, legacyFmt);
     }
 
-    public Agent(Instrumentation instrumentation, boolean userlog, boolean linuxMem) {
+    public Agent(Instrumentation instrumentation, boolean userlog, boolean linuxMem, boolean legacyFmt) {
         this.instrumentation = instrumentation;
-        timer.scheduleAtFixedRate(new Reporter(userlog, linuxMem), 5000, 60000);
+        timer.scheduleAtFixedRate(new Reporter(userlog, linuxMem, legacyFmt), 5000, 60000);
     }
 
 
@@ -53,10 +54,12 @@ public class Agent {
 
         private boolean userlog;
         private boolean linuxMem;
+        private boolean legacyFmt;
 
-        public Reporter(boolean userlog, boolean linuxMem) {
+        public Reporter(boolean userlog, boolean linuxMem, boolean legacyFmt) {
             this.userlog = userlog;
             this.linuxMem = linuxMem;
+            this.legacyFmt = legacyFmt;
         }
 
         static enum Attribute {
@@ -129,7 +132,11 @@ public class Agent {
             getMemoryUtilization(attributes);
             getThreadUtilization(attributes);
             if (userlog) {
-                userReport(attributes);
+                if(legacyFmt) {
+                    userReportLegacy(attributes);
+                } else {
+                    userReport(attributes);
+                }
             }
             statsReport(attributes);
             if(linuxMem) {
@@ -150,9 +157,18 @@ public class Agent {
                     attributes.get(Attribute.total_threads), attributes.get(Attribute.daemon_threads), attributes.get(Attribute.nondaemon_threads), attributes.get(Attribute.internal_threads));
         }
         
+        private void userReportLegacy(EnumMap<Attribute, Long> attributes) {
+            formatAndOutput("JVM Memory Usage     (Heap): used: %dM committed: %dM max:%dM",
+                    attributes.get(Attribute.heap_memory_used_mb), attributes.get(Attribute.heap_memory_committed_mb), attributes.get(Attribute.heap_memory_max_mb));
+            formatAndOutput("JVM Memory Usage (Non-Heap): used: %dM committed: %dM max:%dM",
+                    attributes.get(Attribute.nonheap_memory_used_mb), attributes.get(Attribute.nonheap_memory_committed_mb), attributes.get(Attribute.nonheap_memory_max_mb));
+            formatAndOutput("JVM Threads                : total: %d daemon: %d non-daemon: %d internal: %d",
+                    attributes.get(Attribute.total_threads), attributes.get(Attribute.daemon_threads), attributes.get(Attribute.nondaemon_threads), attributes.get(Attribute.internal_threads));
+        }
+        
         private void linuxMemReport() throws Exception {
 
-            String pid = getPid();
+            String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
             String commandString = "ps auxwww | awk '$2==" + pid + "{print $5, $6}'";
             String[] cmd = {
                     "/bin/sh",
@@ -229,8 +245,12 @@ public class Agent {
 
         private void formatAndOutput(String fmt, Object... args) {
             String msg = String.format(fmt, args);
-            if(System.getenv("PS") != null) {                
-                System.out.print("source=" + System.getenv("PS") + " ");
+            if(legacyFmt) {
+                System.out.print("heroku-javaagent: "); 
+            } else {                
+                if(System.getenv("PS") != null) {                
+                    System.out.print("source=" + System.getenv("PS") + " ");
+                }
             }
             System.out.println(msg);
         }
