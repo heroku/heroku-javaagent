@@ -38,4 +38,3 @@ mvn release:clean release:prepare
 # Now we can actually release (it's slightly more permantent now)
 read -p "Are you still sure you want to release? It's permanent! (press any key to continue)"
 mvn release:perform
-"
