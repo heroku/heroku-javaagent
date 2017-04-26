@@ -1,28 +1,16 @@
 package com.heroku.agent;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.lang.instrument.Instrumentation;
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryMXBean;
-import java.lang.management.MemoryUsage;
-import java.lang.management.ThreadMXBean;
-import java.text.DecimalFormat;
-import java.util.EnumMap;
-import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
+import sun.management.HotspotInternal;
+import sun.management.HotspotThreadMBean;
 
 import javax.management.JMX;
 import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
-
-import sun.management.HotspotInternal;
-import sun.management.HotspotThreadMBean;
+import java.io.*;
+import java.lang.instrument.Instrumentation;
+import java.lang.management.*;
+import java.util.*;
 
 
 public class Agent {
@@ -72,7 +60,13 @@ public class Agent {
             total_threads("Total Threads"),
             daemon_threads("Daemon Threads"),
             nondaemon_threads("Non-Daemon Threads"),
-            internal_threads("Internal Threads (GC, etc)");
+            internal_threads("Internal Threads (GC, etc)"),
+            direct_buffers_used("Direct Buffers Used"),
+            direct_buffers_capacity("Direct Buffers Capacity"),
+            direct_buffers_count("Direct Buffers Count"),
+            mapped_buffers_used("Mapped Buffers Used"),
+            mapped_buffers_capacity("Mapped Buffers Capacity"),
+            mapped_buffers_count("Mapped Buffers Count");
 
             public final String pretty;
 
@@ -90,6 +84,7 @@ public class Agent {
             static MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
             static ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
             static MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+            static List<BufferPoolMXBean> bufferPools = ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class);
 
             static {
                 try {
@@ -100,7 +95,6 @@ public class Agent {
                 }
             }
 
-            //HotspotMemoryMBean hotspotMemoryMBean = JMX.newMBeanProxy(mBeanServer, objectName(HOTSPOT_MEMORY_MBEAN), HotspotMemoryMBean.class);
             static HotspotThreadMBean hotspotThreadMBean = JMX.newMBeanProxy(mBeanServer, objectName(HOTSPOT_THREADING_MBEAN), HotspotThreadMBean.class);
         }
 
@@ -131,6 +125,8 @@ public class Agent {
             EnumMap<Attribute, Long> attributes = new EnumMap<Attribute, Long>(Attribute.class);
             getMemoryUtilization(attributes);
             getThreadUtilization(attributes);
+            getDirectBufferPools(attributes);
+            getMappedBufferPools(attributes);
             if (userlog) {
                 if(legacyFmt) {
                     userReportLegacy(attributes);
@@ -150,11 +146,28 @@ public class Agent {
 
         private void userReport(EnumMap<Attribute, Long> attributes) {
             formatAndOutput("measure.mem.jvm.heap.used=%dM measure.mem.jvm.heap.committed=%dM measure.mem.jvm.heap.max=%dM",
-                    attributes.get(Attribute.heap_memory_used_mb), attributes.get(Attribute.heap_memory_committed_mb), attributes.get(Attribute.heap_memory_max_mb));
+                attributes.get(Attribute.heap_memory_used_mb),
+                attributes.get(Attribute.heap_memory_committed_mb),
+                attributes.get(Attribute.heap_memory_max_mb));
             formatAndOutput("measure.mem.jvm.nonheap.used=%dM measure.mem.jvm.nonheap.committed=%dM measure.mem.jvm.nonheap.max=%dM",
-                    attributes.get(Attribute.nonheap_memory_used_mb), attributes.get(Attribute.nonheap_memory_committed_mb), attributes.get(Attribute.nonheap_memory_max_mb));
+                attributes.get(Attribute.nonheap_memory_used_mb),
+                attributes.get(Attribute.nonheap_memory_committed_mb),
+                attributes.get(Attribute.nonheap_memory_max_mb));
+            formatAndOutput("measure.mem.jvm.%1$2s.used=%2$dM measure.mem.jvm.%1$2s.count=%3$d measure.mem.jvm.%1$2s.capacity=%4$dM",
+                "direct",
+                attributes.get(Attribute.direct_buffers_used),
+                attributes.get(Attribute.direct_buffers_capacity),
+                attributes.get(Attribute.direct_buffers_count));
+            formatAndOutput("measure.mem.jvm.%1$2s.used=%2$dM measure.mem.jvm.%1$2s.count=%3$d measure.mem.jvm.%1$2s.capacity=%4$dM",
+                "mapped",
+                attributes.get(Attribute.mapped_buffers_used),
+                attributes.get(Attribute.mapped_buffers_capacity),
+                attributes.get(Attribute.mapped_buffers_count));
             formatAndOutput("measure.threads.jvm.total=%d measure.threads.jvm.daemon=%d measure.threads.jvm.nondaemon=%d measure.threads.jvm.internal=%d",
-                    attributes.get(Attribute.total_threads), attributes.get(Attribute.daemon_threads), attributes.get(Attribute.nondaemon_threads), attributes.get(Attribute.internal_threads));
+                attributes.get(Attribute.total_threads),
+                attributes.get(Attribute.daemon_threads),
+                attributes.get(Attribute.nondaemon_threads),
+                attributes.get(Attribute.internal_threads));
         }
         
         private void userReportLegacy(EnumMap<Attribute, Long> attributes) {
@@ -241,6 +254,26 @@ public class Agent {
             attributes.put(Attribute.nonheap_memory_used_mb, nonHeap.getUsed() / BYTES_PER_MB);
             attributes.put(Attribute.nonheap_memory_committed_mb, nonHeap.getCommitted() / BYTES_PER_MB);
             attributes.put(Attribute.nonheap_memory_max_mb, nonHeap.getMax() / BYTES_PER_MB);
+        }
+
+        private void getDirectBufferPools(EnumMap<Attribute, Long> attributes) {
+            for (BufferPoolMXBean bean : LazyJMX.bufferPools) {
+               if ("direct".equals(bean.getName())) {
+                    attributes.put(Attribute.direct_buffers_count, bean.getCount());
+                    attributes.put(Attribute.direct_buffers_used, bean.getMemoryUsed() / BYTES_PER_MB);
+                    attributes.put(Attribute.direct_buffers_capacity, bean.getTotalCapacity() / BYTES_PER_MB);
+                }
+            }
+        }
+
+        private void getMappedBufferPools(EnumMap<Attribute, Long> attributes) {
+            for (BufferPoolMXBean bean : LazyJMX.bufferPools) {
+                if ("mapped".equals(bean.getName())) {
+                    attributes.put(Attribute.mapped_buffers_count, bean.getCount());
+                    attributes.put(Attribute.mapped_buffers_used, bean.getMemoryUsed() / BYTES_PER_MB);
+                    attributes.put(Attribute.mapped_buffers_capacity, bean.getTotalCapacity() / BYTES_PER_MB);
+                }
+            }
         }
 
         private void formatAndOutput(String fmt, Object... args) {
