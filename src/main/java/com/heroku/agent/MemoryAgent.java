@@ -13,11 +13,11 @@ import java.lang.management.*;
 import java.util.*;
 
 
-public class Agent {
+public class MemoryAgent {
 
-    Timer timer = new Timer("Heroku Agent Timer",/*daemon*/true);
+    Timer timer = new Timer("Heroku MemoryAgent Timer",/*daemon*/true);
     Instrumentation instrumentation;
-    static Agent agent;
+    static MemoryAgent agent;
     static int BYTES_PER_MB = 1024 * 1000;
     static int KB_PER_MB = 1024;
     public static final String HEROKU_INTERNAL_MBEAN = "heroku:name=hostpotInternal";
@@ -29,10 +29,10 @@ public class Agent {
         boolean userlog = agentArgs != null && agentArgs.contains("stdout=true");
         boolean linuxMem = agentArgs != null && agentArgs.contains("lxmem=true");
         boolean legacyFmt = agentArgs != null && agentArgs.contains("legacyfmt=true");
-        agent = new Agent(instrumentation, userlog, linuxMem, legacyFmt);
+        agent = new MemoryAgent(instrumentation, userlog, linuxMem, legacyFmt);
     }
 
-    public Agent(Instrumentation instrumentation, boolean userlog, boolean linuxMem, boolean legacyFmt) {
+    public MemoryAgent(Instrumentation instrumentation, boolean userlog, boolean linuxMem, boolean legacyFmt) {
         this.instrumentation = instrumentation;
         timer.scheduleAtFixedRate(new Reporter(userlog, linuxMem, legacyFmt), 5000, 60000);
     }

@@ -60,7 +60,7 @@
         <configuration>
           <archive>
             <manifestEntries>
-              <Premain-Class>com.heroku.agent.Agent</Premain-Class>
+              <Premain-Class>com.heroku.agent.MemoryAgent</Premain-Class>
             </manifestEntries>
           </archive>
         </configuration>
